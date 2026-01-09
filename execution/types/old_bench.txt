@@ -1,0 +1,46 @@
+goos: linux
+goarch: amd64
+pkg: github.com/erigontech/erigon/execution/types
+cpu: Intel(R) Core(TM) i7-8565U CPU @ 1.80GHz
+BenchmarkSigHash_DynamicFeeTx-8   	  486656	      2305 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  503037	      2311 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  521917	      2270 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  534100	      2291 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  519025	      2265 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  498505	      2239 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  531265	      2253 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  524865	      2255 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  527145	      2401 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_DynamicFeeTx-8   	  488490	      2277 ns/op	     328 B/op	       9 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  571677	      2131 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  575576	      2104 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  571256	      2147 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  485154	      2110 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  558859	      2118 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  571177	      2109 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  570841	      2141 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  545641	      2176 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  562442	      2144 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_AccessListTx-8   	  570362	      2090 ns/op	     248 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  884546	      1355 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  730077	      1560 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  769604	      1379 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  778200	      1370 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  855339	      1378 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  846922	      1447 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  876255	      1374 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  811772	      1380 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  743522	      1381 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_LegacyTx-8       	  762902	      1422 ns/op	     296 B/op	       7 allocs/op
+BenchmarkSigHash_BlobTx-8         	  360225	      3101 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  387140	      3081 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  389661	      3044 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  396585	      3147 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  370062	      3076 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  397376	      3096 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  401767	      3075 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  362470	      3015 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  355352	      3185 ns/op	     384 B/op	      10 allocs/op
+BenchmarkSigHash_BlobTx-8         	  379263	      3056 ns/op	     384 B/op	      10 allocs/op
+PASS
+ok  	github.com/erigontech/erigon/execution/types	64.119s
