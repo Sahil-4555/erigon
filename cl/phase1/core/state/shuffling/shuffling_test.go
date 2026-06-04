@@ -62,3 +62,38 @@ func TestShuffling(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), idx)
 }
+
+// TestProposerDrift reproduces the scenario from #21582: two states exist for
+// the same validator set — a historical snapshot with original balances, and a
+// head state where balances have drifted. Using the head state for a historical
+// epoch produces different proposers than using the correct historical state.
+func TestProposerDrift(t *testing.T) {
+	historicalState := raw.GetTestState()
+	headState := raw.GetTestState()
+	indices := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
+	seed := [32]byte{1}
+
+	// Baseline: both states produce the same proposer
+	expected, err := shuffling.ComputeProposerIndex(historicalState, indices, seed)
+	require.NoError(t, err)
+
+	headResult, err := shuffling.ComputeProposerIndex(headState, indices, seed)
+	require.NoError(t, err)
+	require.Equal(t, expected, headResult, "identical states must produce identical proposers")
+
+	// Simulate head advancing: mutate effective balance on the head state only
+	headValidator, err := headState.ValidatorForValidatorIndex(int(expected))
+	require.NoError(t, err)
+	headValidator.SetEffectiveBalance(0)
+
+	// Head state now produces a different (drifted) proposer — this is the bug
+	drifted, err := shuffling.ComputeProposerIndex(headState, indices, seed)
+	require.NoError(t, err)
+	require.NotEqual(t, expected, drifted, "head state with changed balances must produce a different proposer")
+
+	// Historical state is unchanged — using it gives the correct, stable result
+	stable, err := shuffling.ComputeProposerIndex(historicalState, indices, seed)
+	require.NoError(t, err)
+	require.Equal(t, expected, stable, "historical state must produce the same proposer regardless of head changes")
+}
+

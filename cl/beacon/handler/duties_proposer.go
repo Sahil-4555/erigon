@@ -27,6 +27,7 @@ import (
 	"github.com/erigontech/erigon/cl/clparams"
 	state_accessors "github.com/erigontech/erigon/cl/persistence/state"
 	"github.com/erigontech/erigon/cl/phase1/core/state"
+	"github.com/erigontech/erigon/cl/phase1/core/state/raw"
 	shuffling2 "github.com/erigontech/erigon/cl/phase1/core/state/shuffling"
 	"github.com/erigontech/erigon/cl/transition"
 	"github.com/erigontech/erigon/common"
@@ -123,25 +124,72 @@ func (a *ApiHandler) getDutiesProposer(w http.ResponseWriter, r *http.Request) (
 			a.beaconChainCfg.EpochsPerHistoricalVector
 
 		var mix common.Hash
-		if epoch+marginEpochs > a.forkchoiceStore.FinalizedCheckpoint().Epoch {
-			// Input for the seed hash.
-			mix = s.GetRandaoMix(int(mixPosition))
-		} else {
-			tx, err := a.indiciesDB.BeginRo(r.Context())
-			if err != nil {
-				return err
-			}
-			defer tx.Rollback()
-			view := a.caplinStateSnapshots.View()
-			defer view.Close()
+		var dutiesBeaconState *raw.BeaconState = s.BeaconState
+		var indices []uint64
 
-			// read the mix from the database
-			mix, err = a.stateReader.ReadRandaoMixBySlotAndIndex(tx, state_accessors.GetValFnTxAndSnapshot(tx, view), expectedSlot, mixPosition)
-			if err != nil {
-				return err
+		if epoch < headEpoch {
+			dutiesCachingState, err := a.forkchoiceStore.GetStateAtBlockRoot(dependentRoot, false)
+			if err == nil && dutiesCachingState != nil {
+				dutiesBeaconState = dutiesCachingState.BeaconState
+				indices = dutiesCachingState.GetActiveValidatorsIndices(epoch)
+				mix = dutiesCachingState.GetRandaoMix(int(mixPosition))
+			} else {
+				tx, err := a.indiciesDB.BeginRo(r.Context())
+				if err != nil {
+					return err
+				}
+				defer tx.Rollback()
+				view := a.caplinStateSnapshots.View()
+				defer view.Close()
+
+				valFn := state_accessors.GetValFnTxAndSnapshot(tx, view)
+
+				// read the mix from the database
+				mix, err = a.stateReader.ReadRandaoMixBySlotAndIndex(tx, valFn, expectedSlot, mixPosition)
+				if err != nil {
+					return err
+				}
+				if mix == (common.Hash{}) {
+					return beaconhttp.NewEndpointError(http.StatusNotFound, fmt.Errorf("mix not found for slot %d and index %d. maybe block was not backfilled or range was pruned", expectedSlot, mixPosition))
+				}
+
+				validatorSet, err := a.stateReader.ReadValidatorsForHistoricalState(tx, valFn, expectedSlot)
+				if err != nil {
+					return err
+				}
+				if validatorSet == nil {
+					return beaconhttp.NewEndpointError(http.StatusNotFound, fmt.Errorf("validator set not found for slot %d", expectedSlot))
+				}
+
+				dummyState := state.New(a.beaconChainCfg)
+				dummyState.SetVersion(a.beaconChainCfg.GetCurrentStateVersion(epoch))
+				dummyState.SetValidatorSet(validatorSet)
+
+				dutiesBeaconState = dummyState.BeaconState
+				indices = dummyState.GetActiveValidatorsIndices(epoch)
 			}
-			if mix == (common.Hash{}) {
-				return beaconhttp.NewEndpointError(http.StatusNotFound, fmt.Errorf("mix not found for slot %d and index %d. maybe block was not backfilled or range was pruned", expectedSlot, mixPosition))
+		} else {
+			indices = s.GetActiveValidatorsIndices(epoch)
+			if epoch+marginEpochs > a.forkchoiceStore.FinalizedCheckpoint().Epoch {
+				// Input for the seed hash.
+				mix = s.GetRandaoMix(int(mixPosition))
+			} else {
+				tx, err := a.indiciesDB.BeginRo(r.Context())
+				if err != nil {
+					return err
+				}
+				defer tx.Rollback()
+				view := a.caplinStateSnapshots.View()
+				defer view.Close()
+
+				// read the mix from the database
+				mix, err = a.stateReader.ReadRandaoMixBySlotAndIndex(tx, state_accessors.GetValFnTxAndSnapshot(tx, view), expectedSlot, mixPosition)
+				if err != nil {
+					return err
+				}
+				if mix == (common.Hash{}) {
+					return beaconhttp.NewEndpointError(http.StatusNotFound, fmt.Errorf("mix not found for slot %d and index %d. maybe block was not backfilled or range was pruned", expectedSlot, mixPosition))
+				}
 			}
 		}
 
@@ -159,17 +207,15 @@ func (a *ApiHandler) getDutiesProposer(w http.ResponseWriter, r *http.Request) (
 			hash.Write(inputWithSlot)
 			seed := hash.Sum(nil)
 
-			indices := s.GetActiveValidatorsIndices(epoch)
-
 			// Write the seed to an array.
 			seedArray := [32]byte{}
 			copy(seedArray[:], seed)
 			wg.Add(1)
 
 			// Do it in parallel
-			go func(i, slot uint64, indicies []uint64, seedArray [32]byte) {
+			go func(i, slot uint64, seedArray [32]byte) {
 				defer wg.Done()
-				proposerIndex, err := shuffling2.ComputeProposerIndex(s.BeaconState, indices, seedArray)
+				proposerIndex, err := shuffling2.ComputeProposerIndex(dutiesBeaconState, indices, seedArray)
 				if err != nil {
 					panic(err)
 				}
@@ -183,7 +229,7 @@ func (a *ApiHandler) getDutiesProposer(w http.ResponseWriter, r *http.Request) (
 					ValidatorIndex: proposerIndex,
 					Slot:           slot,
 				}
-			}(slot-expectedSlot, slot, indices, seedArray)
+			}(slot-expectedSlot, slot, seedArray)
 		}
 		wg.Wait()
 		return nil
