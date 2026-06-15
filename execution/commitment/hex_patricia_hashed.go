@@ -503,7 +503,7 @@ func (cell *cell) deriveHashedKeys(depth int16, keccak keccak.KeccakState, accou
 			if depth >= 64 {
 				hashedKeyOffset = depth - 64
 			}
-			if depth == 0 {
+			if depth == 0 && cell.accountAddrLen == 0 {
 				accountKeyLen = 0
 			}
 			if err := cell.hashStorageKey(keccak, accountKeyLen, downOffset, hashedKeyOffset, hashBuf); err != nil {
@@ -1457,13 +1457,22 @@ func (hph *HexPatriciaHashed) toWitnessTrie(hashedKey []byte, codeReads map[comm
 	keyPos := int16(0) // current position in hashedKey (usually same as row, but could be different due to extension nodes)
 
 	if hph.root.hashedExtLen > 0 {
-		extKey := common.Copy(hph.root.hashedExtension[:hph.root.hashedExtLen])
+		extKeyLength := min(hph.root.hashedExtLen, 64)
+		extKey := common.Copy(hph.root.hashedExtension[:extKeyLength])
 		if len(extKey) == 64 {
 			extKey = append(extKey, terminatorHexByte) // append terminator byte
 		}
-		currentNode = &trie.ShortNode{Key: extKey, Val: &trie.FullNode{}}
-		rootNode = currentNode             // use root node as the current node
-		keyPos = hph.root.hashedExtLen - 1 // start from the end of the root extension
+		var valNode trie.Node = &trie.FullNode{}
+		if extKeyLength == 64 {
+			accNode, err := hph.witnessCreateAccountNode(&hph.root, 0, hashedKey, codeReads)
+			if err != nil {
+				return nil, err
+			}
+			valNode = accNode
+		}
+		currentNode = valNode
+		rootNode = &trie.ShortNode{Key: extKey, Val: valNode}
+		keyPos = extKeyLength // start from after the root extension
 		if hph.trace {
 			log.Debug("[witness] root node", "node", hph.root.FullString(), "pos", keyPos)
 		}
@@ -1471,8 +1480,12 @@ func (hph *HexPatriciaHashed) toWitnessTrie(hashedKey []byte, codeReads map[comm
 
 	var nextNode trie.Node
 	var row int
+	startRow := 0
+	if hph.root.hashedExtLen > 0 {
+		startRow = 1
+	}
 	pathDivergenceFound := false // indicates if the extension node has a common prefix path that diverges from what is found in the hashedKey
-	for row = 0; row < hph.activeRows && keyPos < int16(len(hashedKey)); row++ {
+	for row = startRow; row < hph.activeRows && keyPos < int16(len(hashedKey)); row++ {
 		if pathDivergenceFound { // path divergence found in previous iteration, cannot expand further the proof trie
 			break
 		}
@@ -1664,7 +1677,11 @@ func (hph *HexPatriciaHashed) toWitnessTrie(hashedKey []byte, codeReads map[comm
 				fmt.Printf("[witness] AccountNode (+storage) (%d, %0x, depth=%d) %s proof %+v\n", row, currentNibble, hph.depths[row], cellToExpand.FullString(), accNode)
 			}
 		} else if extNode, ok := currentNode.(*trie.ShortNode); ok { // handle extension node case
-			extNode.Val = nextNode
+			if nextShort, ok := nextNode.(*trie.ShortNode); ok && bytes.Equal(extNode.Key, nextShort.Key) {
+				extNode.Val = nextShort.Val
+			} else {
+				extNode.Val = nextNode
+			}
 
 			if hph.trace {
 				fmt.Printf("[witness, pos %d] ShortNode (%d, %0x, depth=%d) %s proof %+v\n", keyPos, row, currentNibble, hph.depths[row], cellToExpand.FullString(), extNode)
@@ -1711,8 +1728,102 @@ func (hph *HexPatriciaHashed) toWitnessTrie(hashedKey []byte, codeReads map[comm
 		}
 	}
 
+	if err := hph.findAndExpandAccountNode(rootNode, 0, hashedKey); err != nil {
+		return nil, err
+	}
+
 	tr := trie.NewInMemoryTrie(rootNode)
 	return tr, nil
+}
+
+func (hph *HexPatriciaHashed) expandStorageTrie(accNode *trie.AccountNode, row int, hashedKey []byte) error {
+	if len(hashedKey) <= 64 {
+		return nil
+	}
+	if _, ok := accNode.Storage.(*trie.HashNode); !ok {
+		return nil
+	}
+	var storageRootExtCell *cell
+	for col := 0; col < 16; col++ {
+		c := &hph.grid[row][col]
+		if !c.IsEmpty() && c.accountAddrLen > 0 {
+			var hashedAddr [64]byte
+			if err := hashKey(hph.keccak, c.accountAddr[:c.accountAddrLen], hashedAddr[:], 0, hph.cellHashBuf[:]); err == nil {
+				if bytes.Equal(hashedAddr[:64], hashedKey[:64]) {
+					storageRootExtCell = c
+					break
+				}
+			}
+		}
+	}
+	if storageRootExtCell == nil {
+		return nil
+	}
+	if storageRootExtCell.storageAddrLen > 0 {
+		var hashedSlotKey [64]byte
+		if err := hashKey(hph.keccak, storageRootExtCell.storageAddr[hph.accountKeyLen:storageRootExtCell.storageAddrLen], hashedSlotKey[:], 0, hph.cellHashBuf[:]); err != nil {
+			return fmt.Errorf("failed to hash storage key for exclusion proof: %w", err)
+		}
+		extKey := make([]byte, 64)
+		copy(extKey, hashedSlotKey[:])
+		extKey = append(extKey, terminatorHexByte)
+		storageUpdate, err := hph.storageFromCacheOrDB(storageRootExtCell.storageAddr[:storageRootExtCell.storageAddrLen])
+		if err != nil {
+			return fmt.Errorf("failed to load storage for exclusion proof: %w", err)
+		}
+		storageValueNode := trie.ValueNode(storageUpdate.Storage[:storageUpdate.StorageLen])
+		constructedNode := &trie.ShortNode{Key: extKey, Val: storageValueNode}
+		accNode.Storage = constructedNode
+	} else {
+		if int(row+1) >= hph.activeRows {
+			return fmt.Errorf("grid row out of bounds: row+1 (%d) >= activeRows (%d)", row+1, hph.activeRows)
+		}
+		if err := hph.unfold(hashedKey, 1); err != nil {
+			return fmt.Errorf("failed to unfold storage trie for exclusion proof: %w", err)
+		}
+		fullNode := &trie.FullNode{}
+		accNode.Storage = fullNode
+		for col := range 16 {
+			currentCell := &hph.grid[row+1][col]
+			if currentCell.IsEmpty() {
+				fullNode.Children[col] = nil
+				continue
+			}
+			cellHash, _, _, err := hph.witnessComputeCellHashWithStorage(currentCell, hph.depths[row+1], nil)
+			if err != nil {
+				return err
+			}
+			if len(cellHash) == length.Hash+1 {
+				cellHash = cellHash[1:]
+			}
+			fullNode.Children[col] = trie.NewHashNode(common.Copy(cellHash))
+		}
+	}
+	return nil
+}
+
+func (hph *HexPatriciaHashed) findAndExpandAccountNode(node trie.Node, row int, hashedKey []byte) error {
+	if node == nil || int(row) >= hph.activeRows {
+		return nil
+	}
+	switch n := node.(type) {
+	case *trie.ShortNode:
+		if accNode, ok := n.Val.(*trie.AccountNode); ok {
+			return hph.expandStorageTrie(accNode, row, hashedKey)
+		}
+		return hph.findAndExpandAccountNode(n.Val, row+1, hashedKey)
+	case *trie.FullNode:
+		for _, child := range n.Children {
+			if child != nil {
+				if err := hph.findAndExpandAccountNode(child, row+1, hashedKey); err != nil {
+					return err
+				}
+			}
+		}
+	case *trie.AccountNode:
+		return hph.expandStorageTrie(n, row, hashedKey)
+	}
+	return nil
 }
 
 // readBranchAndCheckForFlushing reads a branch from ctx, flushing deferred updates first if the prefix is pending.

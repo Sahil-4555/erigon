@@ -2292,6 +2292,9 @@ func Test_WitnessTrie_GenerateWitness(t *testing.T) {
 		}
 
 		witnessTrie, rootWitness, err := hph.GenerateWitness(context.Background(), toWitness, nil, "")
+		if err != nil {
+			t.Fatalf("GenerateWitness error: %v", err)
+		}
 		require.NoError(t, err)
 		_ = witnessTrie
 		require.NotNil(t, witnessTrie, "witness trie should not be nil")
@@ -3439,6 +3442,30 @@ func Test_WitnessTrie_GenerateWitness(t *testing.T) {
 		buildTrieAndWitness(t, builder,
 			[][]byte{accountA, fullStorageKey},
 			[]bool{true, false})
+	})
+
+	t.Run("NonExistentStorageProofInNonEmptyStorageTrie", func(t *testing.T) {
+		t.Logf("NonExistentStorageProofInNonEmptyStorageTrie")
+		// Test: request an exclusion proof for a storage slot in a non-empty storage trie.
+		// We create 1 account that has a single existing non-zero storage slot.
+		// Then we request a witness for a DIFFERENT, zero-valued storage slot.
+		// The witness should contain the storage trie's exclusion proof.
+		plainKeysList, _ := generatePlainKeysWithSameHashPrefix(t, nil, length.Addr, 0, 1)
+		addr := common.Copy(plainKeysList[0])
+
+		existingStorageSlot, _ := generateKeyWithHashedPrefix([]byte{0x3}, length.Hash)
+		nonExistentStorageSlot, _ := generateKeyWithHashedPrefix([]byte{0x7}, length.Hash)
+
+
+
+		fullNonExistentStorageKey := append(common.Copy(addr), nonExistentStorageSlot...)
+
+		builder := NewUpdateBuilder()
+		builder.Balance(common.Bytes2Hex(addr), 100)
+		builder.Storage(common.Bytes2Hex(addr), common.Bytes2Hex(existingStorageSlot), "01")
+
+		// Witness the non-existent storage slot.
+		buildTrieAndWitness(t, builder, [][]byte{fullNonExistentStorageKey}, []bool{false})
 	})
 }
 
