@@ -104,7 +104,7 @@ func (s *StreamBroadcaster[T]) Broadcast(reply *T, logger log.Logger) {
 	s.mu.Unlock()
 
 	if dropped > 0 {
-		logger.Warn("[grpc] dropped stream subscribers that stopped reading",
+		logger.Warn("[grpc] dropped stream subscribers that fell behind",
 			"count", dropped, "stream", fmt.Sprintf("%T", reply))
 	}
 }
