@@ -250,7 +250,11 @@ func (w *Warmuper) Wait() error {
 		return nil
 	}
 	w.Close()
-	w.g.Wait()
+	// Close's cancellation is the expected shutdown path (see Close's comment), so
+	// workers reporting w.ctx.Err() from it is not a failure; any other error is.
+	if err := w.g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
 	return nil
 }
 

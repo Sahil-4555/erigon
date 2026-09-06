@@ -357,7 +357,7 @@ func (e *ExecModule) unwindIfNeeded(
 func (e *ExecModule) updateForkChoice(ctx context.Context, originalBlockHash, safeHash, finalizedHash common.Hash, outcomeCh chan forkchoiceOutcome) (err error) {
 	if !e.semaphore.TryAcquire(1) {
 		e.logger.Trace("ethereumExecutionModule.updateForkChoice: ExecutionStatus_Busy")
-		sendForkchoiceResultWithoutWaiting(outcomeCh, ForkChoiceResult{
+		_ = sendForkchoiceResultWithoutWaiting(outcomeCh, ForkChoiceResult{
 			LatestValidHash: common.Hash{},
 			Status:          ExecutionStatusBusy,
 		}, false)
@@ -557,7 +557,7 @@ func (e *ExecModule) updateForkChoice(ctx context.Context, originalBlockHash, sa
 		e.logger.Debug("[updateForkchoice] Fork choice update: flushing in-memory state (built by previous newPayload)")
 		if stateFlushingInParallel {
 			// Send forkchoice early (We already know the fork is valid)
-			sendForkchoiceResultWithoutWaiting(outcomeCh, ForkChoiceResult{
+			_ = sendForkchoiceResultWithoutWaiting(outcomeCh, ForkChoiceResult{
 				LatestValidHash: blockHash,
 				Status:          ExecutionStatusSuccess,
 				ValidationError: validationError,

@@ -430,7 +430,8 @@ func doHistoryMap(ctx context.Context, consumer TraceConsumer, cfg *ExecArgs, in
 		})
 	}
 	defer func() {
-		mapGroup.Wait()
+		// Blocks until workers stop before ResetTx runs; the explicit Wait() below covers the error.
+		_ = mapGroup.Wait()
 		for _, w := range workers {
 			w.ResetTx(nil)
 		}
@@ -568,10 +569,14 @@ func CustomTraceMapReduce(ctx context.Context, fromBlock, toBlock uint64, consum
 		if tx != nil && WorkerCount == 1 {
 			h, err = cfg.BlockReader.Header(ctx, tx, hash, number)
 		} else {
-			cfg.ChainDB.View(ctx, func(tx kv.Tx) error {
+			// The callback always returns nil, so a non-nil viewErr here can only be a
+			// transaction-acquisition failure, not the Header() error captured below.
+			if viewErr := cfg.ChainDB.View(ctx, func(tx kv.Tx) error {
 				h, err = cfg.BlockReader.Header(ctx, tx, hash, number)
 				return nil
-			})
+			}); viewErr != nil {
+				return nil, viewErr
+			}
 
 			if err != nil {
 				return nil, err
@@ -585,7 +590,8 @@ func CustomTraceMapReduce(ctx context.Context, fromBlock, toBlock uint64, consum
 
 	ctx, cancleCtx := context.WithCancel(ctx)
 	workers := NewHistoricalTraceWorkers(consumer, cfg, ctx, toTxNum, in, WorkerCount, outTxNum, logger)
-	defer workers.Wait()
+	// Blocks until workers stop on any return path; the explicit, checked Wait() below covers the error.
+	defer func() { _ = workers.Wait() }()
 
 	workersExited := &atomic.Bool{}
 	go func() {

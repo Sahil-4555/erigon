@@ -66,7 +66,7 @@ func MountPointForDirPath(dirPath string) string {
 
 		// Extract device ID from the mountinfo line
 		var deviceID uint64
-		fmt.Sscanf(fields[4], "%d", &deviceID)
+		_, _ = fmt.Sscanf(fields[4], "%d", &deviceID)
 		if deviceID == devID {
 			return fields[4]
 		}
