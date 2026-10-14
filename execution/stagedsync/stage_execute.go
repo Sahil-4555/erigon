@@ -451,7 +451,7 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, doms *execctx.SharedDoma
 		maxBlockNum:              to,
 	}
 
-	if !(dbg.Exec3Parallel || cfg.experimentalBAL) {
+	if !(dbg.Exec3Parallel || cfg.experimentalBAL) || serialForkValidation(ctx, s, cfg, rwTx, to) {
 		return execV3Serial(ctx, s, u, cfg, doms, rwTx, rng, logger)
 	}
 
@@ -756,4 +756,21 @@ func blockAmountRetireCutoffTxNum(ctx context.Context, tx kv.Tx, blockReader dbs
 		return 0, nil
 	}
 	return blockReader.TxnumReader().Min(ctx, tx, cutoffBlock)
+}
+
+// serialForkValidation reports whether fork validation (engine_newPayload) uses the serial executor. The parallel
+// executor revalidates quadratically when many txs write one account; the serial one stays linear. Pre-Amsterdam
+// only: the block access list is built by the parallel executor.
+func serialForkValidation(ctx context.Context, s *StageState, cfg ExecuteBlockCfg, tx kv.Tx, to uint64) bool {
+	if s.SyncMode() != stages.ModeForkValidation || cfg.experimentalBAL {
+		return false
+	}
+	if cfg.chainConfig.AmsterdamTime == nil {
+		return true
+	}
+	header, err := cfg.blockReader.HeaderByNumber(ctx, tx, to)
+	if err != nil || header == nil {
+		return false
+	}
+	return !cfg.chainConfig.IsAmsterdam(header.Time)
 }
